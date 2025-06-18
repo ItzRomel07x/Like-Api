@@ -10,8 +10,8 @@ from datetime import timedelta, datetime
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# ✅ Token issuing API URL
-AUTH_URL = os.getenv("AUTH_URL", "https://bd-apiiii.vercel.app/token")
+# API URL (Token issuing endpoint)
+AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token")
 
 # Cache settings
 CACHE_DURATION = timedelta(hours=7).seconds
@@ -56,13 +56,7 @@ class TokenCache:
                     for user in creds[:100]  # Use max 100 accounts
                 ]
                 results = await asyncio.gather(*tasks)
-
-                # ✅ Flatten and filter tokens
-                for result in results:
-                    if isinstance(result, list):
-                        tokens.extend(result)
-                    elif result:
-                        tokens.append(result)
+                tokens = [token for token in results if token]
 
             if tokens:
                 self.cache[server_key] = tokens
@@ -77,33 +71,30 @@ class TokenCache:
                 self.cache[server_key] = []
 
     async def _fetch_token(self, session, uid, password, server_key, sem):
-        url = f"{AUTH_URL}?uid={uid}&password={password}&region={server_key}"
+        # ✅ Region যুক্ত করে URL তৈরি
+        url = f"{AUTH_URL}?uid={uid}&password={password}"
         try:
             async with sem:
                 async with session.get(url, timeout=6) as response:
                     if response.status == 200:
                         data = await response.json()
-
-                        # ✅ Handle both 'token' (str) and 'tokens' (list)
-                        tokens = data.get("tokens") or data.get("token")
-                        if isinstance(tokens, str):
-                            return [tokens]
-                        elif isinstance(tokens, list):
-                            return tokens
+                        token = data.get("token")
+                        if token:
+                            return token
                         else:
-                            logger.warning(f"🔴 {uid} ({server_key}): No valid token(s) found")
+                            logger.warning(f"🔴 {uid} ({server_key}): Empty token")
                     else:
                         logger.warning(f"🔴 {uid} ({server_key}): Status {response.status}")
         except asyncio.TimeoutError:
             logger.warning(f"⏱️ Timeout for {uid} ({server_key})")
         except Exception as e:
             logger.error(f"❌ Error for {uid} ({server_key}): {str(e)}")
-        return []
+        return None
 
     async def _load_credentials(self, server_key: str):
         try:
             # Priority 1: From ENV
-            config_data = os.getenv(f"{server_key.upper()}_CONFIG")
+            config_data = os.getenv(f"{server_key}_CONFIG")
             if config_data:
                 return json.loads(config_data)
 
