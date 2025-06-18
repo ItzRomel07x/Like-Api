@@ -3,7 +3,6 @@ import asyncio
 from datetime import datetime, timezone
 import logging
 import aiohttp
-import requests
 
 from .utils.protobuf_utils import encode_uid, decode_info, create_protobuf
 from .utils.crypto_utils import encrypt_aes
@@ -20,23 +19,22 @@ async def async_post_request(url: str, data: bytes, token: str):
         headers = get_headers(token)
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=data, headers=headers, timeout=10) as resp:
-                return await resp.read()
+                return await resp.read() if resp.status == 200 else None
     except Exception as e:
         logger.error(f"Async request failed: {str(e)}")
         return None
 
-def make_request(uid_enc: str, url: str, token: str):
+async def make_request_async(uid_enc: str, url: str, token: str):
     data = bytes.fromhex(uid_enc)
     headers = get_headers(token)
     try:
-        response = requests.post(url, headers=headers, data=data, timeout=10)
-        if response.status_code == 200:
-            return decode_info(response.content)
-        logger.warning(f"Request failed with status {response.status_code}")
-        return None
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, data=data, timeout=5) as resp:
+                if resp.status == 200:
+                    return decode_info(await resp.read())
     except Exception as e:
-        logger.error(f"Request error: {str(e)}")
-        return None
+        logger.error(f"Async make_request failed: {str(e)}")
+    return None
 
 async def detect_player_region(uid: str):
     for region_key, server_url in _SERVERS.items():
@@ -55,7 +53,7 @@ async def send_likes(uid: str, region: str):
     tokens = _token_cache.get_tokens(region)
     like_url = f"{_SERVERS[region]}/LikeProfile"
     encrypted = encrypt_aes(create_protobuf(uid, region))
-    tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens]
+    tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens[:10]]
     results = await asyncio.gather(*tasks)
     return {
         'sent': len(results),
@@ -82,7 +80,7 @@ async def like_player():
             if not tokens:
                 return jsonify({"error": "No tokens found for region"}), 400
             info_url = f"{_SERVERS[region]}/GetPlayerPersonalShow"
-            player_info = make_request(encode_uid(uid), info_url, tokens[0])
+            player_info = await make_request_async(encode_uid(uid), info_url, tokens[0])
             if not player_info:
                 return jsonify({"error": "Player not found"}), 404
         else:
@@ -101,7 +99,7 @@ async def like_player():
 
         current_tokens = _token_cache.get_tokens(region)
         info_url = f"{_SERVERS[region]}/GetPlayerPersonalShow"
-        new_info = make_request(encode_uid(uid), info_url, current_tokens[0]) if current_tokens else None
+        new_info = await make_request_async(encode_uid(uid), info_url, current_tokens[0]) if current_tokens else None
         after_likes = new_info.AccountInfo.Likes if new_info else before_likes
 
         return jsonify({
