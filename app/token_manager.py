@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # API URL (Token issuing endpoint)
-AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token?uid={your_uid}&password={your_password}")
+AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token")
 
 # Cache settings
 CACHE_DURATION = timedelta(hours=7).seconds
