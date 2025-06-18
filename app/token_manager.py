@@ -9,7 +9,7 @@ from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
-AUTH_URL = os.getenv("AUTH_URL", "https://bd-apiiii.vercel.app/api/token") 
+AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token?uid={your_uid}&password={your_password}") 
 CACHE_DURATION = timedelta(hours=7).seconds
 TOKEN_REFRESH_THRESHOLD = timedelta(hours=6).seconds
 
