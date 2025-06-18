@@ -1,87 +1,96 @@
 import os
 import json
-import threading
-import time
+import asyncio
+import aiohttp
 import logging
-import requests
 from cachetools import TTLCache
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 logger = logging.getLogger(__name__)
 
-AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token?uid={your_uid}&password={your_password}") 
+AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token")
 CACHE_DURATION = timedelta(hours=7).seconds
 TOKEN_REFRESH_THRESHOLD = timedelta(hours=6).seconds
 
 class TokenCache:
-    def __init__(self, servers_config):
+    def __init__(self, servers_config: dict):
         self.cache = TTLCache(maxsize=100, ttl=CACHE_DURATION)
         self.last_refresh = {}
-        self.lock = threading.Lock()
-        self.session = requests.Session()
         self.servers_config = servers_config
+        self.lock = asyncio.Lock()
 
-    def get_tokens(self, server_key):
-        with self.lock:
-            now = time.time()
-            refresh_needed = (
+    async def get_tokens(self, server_key: str):
+        async with self.lock:
+            now = datetime.utcnow().timestamp()
+            needs_refresh = (
                 server_key not in self.cache or
                 server_key not in self.last_refresh or
                 (now - self.last_refresh.get(server_key, 0)) > TOKEN_REFRESH_THRESHOLD
             )
 
-            if refresh_needed:
-                self._refresh_tokens(server_key)
+            if needs_refresh:
+                await self._refresh_tokens(server_key)
                 self.last_refresh[server_key] = now
 
             return self.cache.get(server_key, [])
 
-    def _refresh_tokens(self, server_key):
+    async def _refresh_tokens(self, server_key: str):
         try:
-            creds = self._load_credentials(server_key)
+            creds = await self._load_credentials(server_key)
             tokens = []
 
-            for user in creds:
-                try:
+            async with aiohttp.ClientSession() as session:
+                tasks = []
+                for user in creds:
                     params = {'uid': user['uid'], 'password': user['password']}
-                    response = self.session.get(AUTH_URL, params=params, timeout=5)
-                    if response.status_code == 200:
-                        token = response.json().get("token")
-                        if token:
-                            tokens.append(token)
-                    else:
-                        logger.warning(f"Failed to fetch token for {user['uid']} (server {server_key}): Status {response.status_code}, Response: {response.text}")
-                except Exception as e:
-                    logger.error(f"Error fetching token for {user['uid']} (server {server_key}): {str(e)}")
-                    continue
+                    url = f"{AUTH_URL}?uid={user['uid']}&password={user['password']}"
+                    tasks.append(self._fetch_token(session, url, user['uid'], server_key))
+
+                results = await asyncio.gather(*tasks)
+                tokens = [token for token in results if token]
 
             if tokens:
                 self.cache[server_key] = tokens
-                logger.info(f"Refreshed tokens for {server_key}. Count: {len(tokens)}")
+                logger.info(f"✅ {server_key}: {len(tokens)} টি টোকেন সফলভাবে রিফ্রেশ হয়েছে।")
             else:
-                logger.warning(f"No valid tokens retrieved for {server_key}. Clearing cache for this server.")
+                logger.warning(f"⚠️ {server_key}: কোনো টোকেন পাওয়া যায়নি। cache খালি করা হচ্ছে।")
                 self.cache[server_key] = []
 
         except Exception as e:
-            logger.error(f"Critical error during token refresh for {server_key}: {str(e)}")
+            logger.error(f"❌ Token refresh error for {server_key}: {str(e)}")
             if server_key not in self.cache:
                 self.cache[server_key] = []
 
-    def _load_credentials(self, server_key):
+    async def _fetch_token(self, session, url, uid, server_key):
         try:
+            async with session.get(url, timeout=5) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("token")
+                else:
+                    logger.warning(f"🔴 {uid} ({server_key}): Token fetch failed ({response.status})")
+        except Exception as e:
+            logger.error(f"❌ Error fetching token for {uid} ({server_key}): {str(e)}")
+        return None
+
+    async def _load_credentials(self, server_key: str):
+        try:
+            # Priority 1: ENVIRONMENT VARIABLE
             config_data = os.getenv(f"{server_key}_CONFIG")
             if config_data:
                 return json.loads(config_data)
 
-            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', f'{server_key.lower()}_config.json')
+            # Priority 2: Local config file
+            base_path = os.path.dirname(os.path.dirname(__file__))
+            config_path = os.path.join(base_path, 'config', f'{server_key.lower()}_config.json')
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     return json.load(f)
             else:
-                logger.warning(f"Config file not found for {server_key}: {config_path}. No credentials loaded.")
+                logger.warning(f"⚠️ Config not found for {server_key}: {config_path}")
                 return []
         except Exception as e:
-            logger.error(f"Error loading credentials for {server_key}: {str(e)}")
+            logger.error(f"❌ Credential load error for {server_key}: {str(e)}")
             return []
 
 def get_headers(token: str):
