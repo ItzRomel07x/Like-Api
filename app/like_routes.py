@@ -19,22 +19,20 @@ async def async_post_request(url: str, data: bytes, token: str):
         headers = get_headers(token)
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=data, headers=headers, timeout=10) as resp:
-                if resp.status == 200:
-                    raw = await resp.read()
-                    return raw
+                return await resp.read() if resp.status == 200 else None
     except Exception as e:
         logger.error(f"Async request failed: {str(e)}")
-    return None
+        return None
 
 async def make_request_async(uid_enc: str, url: str, token: str):
+    data = bytes.fromhex(uid_enc)
+    headers = get_headers(token)
     try:
-        data = bytes.fromhex(uid_enc)
-        headers = get_headers(token)
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, data=data, timeout=5) as resp:
                 if resp.status == 200:
                     raw = await resp.read()
-                    return decode_info(raw)  # ✅ decode_info is assumed to be synchronous
+                    return await decode_info(raw)  # ✅ Fix: await added
     except Exception as e:
         logger.error(f"Async make_request failed: {str(e)}")
     return None
@@ -45,27 +43,18 @@ async def detect_player_region(uid: str):
         if not tokens:
             continue
         info_url = f"{server_url}/GetPlayerPersonalShow"
-        raw_response = await async_post_request(info_url, bytes.fromhex(encode_uid(uid)), tokens[0])
-        if raw_response:
-            try:
-                player_info = decode_info(raw_response)
-                if player_info and player_info.AccountInfo.PlayerNickname:
-                    return region_key, player_info
-            except Exception as e:
-                logger.warning(f"Decoding failed for server {region_key}: {e}")
+        response = await async_post_request(info_url, bytes.fromhex(encode_uid(uid)), tokens[0])
+        if response:
+            player_info = await decode_info(response)  # ✅ Fix here as well
+            if player_info and player_info.AccountInfo.PlayerNickname:
+                return region_key, player_info
     return None, None
 
 async def send_likes(uid: str, region: str):
     tokens = _token_cache.get_tokens(region)
     like_url = f"{_SERVERS[region]}/LikeProfile"
     encrypted = encrypt_aes(create_protobuf(uid, region))
-    data = bytes.fromhex(encrypted)
-
-    tasks = [
-        async_post_request(like_url, data, token)
-        for token in tokens[:10]
-    ]
-
+    tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens[:10]]
     results = await asyncio.gather(*tasks)
     return {
         'sent': len(results),
@@ -107,12 +96,11 @@ async def like_player():
 
         before_likes = player_info.AccountInfo.Likes
         player_name = player_info.AccountInfo.PlayerNickname
-
         await send_likes(uid, region)
 
-        tokens = _token_cache.get_tokens(region)
+        current_tokens = _token_cache.get_tokens(region)
         info_url = f"{_SERVERS[region]}/GetPlayerPersonalShow"
-        new_info = await make_request_async(encode_uid(uid), info_url, tokens[0]) if tokens else None
+        new_info = await make_request_async(encode_uid(uid), info_url, current_tokens[0]) if current_tokens else None
         after_likes = new_info.AccountInfo.Likes if new_info else before_likes
 
         return jsonify({
