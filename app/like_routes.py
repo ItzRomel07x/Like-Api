@@ -31,27 +31,26 @@ async def make_request_async(uid_enc: str, url: str, token: str):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, data=data, timeout=5) as resp:
                 if resp.status == 200:
-                    raw = await resp.read()
-                    return await decode_info(raw)  # ✅ Fix: await added
+                    return decode_info(await resp.read())
     except Exception as e:
         logger.error(f"Async make_request failed: {str(e)}")
     return None
 
 async def detect_player_region(uid: str):
     for region_key, server_url in _SERVERS.items():
-        tokens = _token_cache.get_tokens(region_key)
+        tokens = await _token_cache.get_tokens(region_key)
         if not tokens:
             continue
         info_url = f"{server_url}/GetPlayerPersonalShow"
         response = await async_post_request(info_url, bytes.fromhex(encode_uid(uid)), tokens[0])
         if response:
-            player_info = await decode_info(response)  # ✅ Fix here as well
+            player_info = decode_info(response)
             if player_info and player_info.AccountInfo.PlayerNickname:
                 return region_key, player_info
     return None, None
 
 async def send_likes(uid: str, region: str):
-    tokens = _token_cache.get_tokens(region)
+    tokens = await _token_cache.get_tokens(region)
     like_url = f"{_SERVERS[region]}/LikeProfile"
     encrypted = encrypt_aes(create_protobuf(uid, region))
     tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens[:10]]
@@ -77,7 +76,7 @@ async def like_player():
 
         if region_param:
             region = region_param.upper()
-            tokens = _token_cache.get_tokens(region)
+            tokens = await _token_cache.get_tokens(region)
             if not tokens:
                 return jsonify({"error": "No tokens found for region"}), 400
             info_url = f"{_SERVERS[region]}/GetPlayerPersonalShow"
@@ -98,7 +97,7 @@ async def like_player():
         player_name = player_info.AccountInfo.PlayerNickname
         await send_likes(uid, region)
 
-        current_tokens = _token_cache.get_tokens(region)
+        current_tokens = await _token_cache.get_tokens(region)
         info_url = f"{_SERVERS[region]}/GetPlayerPersonalShow"
         new_info = await make_request_async(encode_uid(uid), info_url, current_tokens[0]) if current_tokens else None
         after_likes = new_info.AccountInfo.Likes if new_info else before_likes
@@ -126,13 +125,10 @@ async def like_player():
 @like_bp.route("/health-check", methods=["GET"])
 def health_check():
     try:
-        token_status = {
-            server: len(_token_cache.get_tokens(server)) > 0 
-            for server in _SERVERS 
-        }
+        status_map = asyncio.run(async_health_check())
         return jsonify({
-            "status": "healthy" if all(token_status.values()) else "degraded",
-            "servers": token_status,
+            "status": "healthy" if all(status_map.values()) else "degraded",
+            "servers": status_map,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "credits": "https://t.me/nopethug"
         })
@@ -144,11 +140,21 @@ def health_check():
             "credits": "https://t.me/nopethug"
         }), 500
 
+async def async_health_check():
+    result = {}
+    for server in _SERVERS:
+        try:
+            tokens = await _token_cache.get_tokens(server)
+            result[server] = len(tokens) > 0
+        except:
+            result[server] = False
+    return result
+
 @like_bp.route("/", methods=["GET"])
 async def root_home():
     return jsonify({
-        "message": "API Free Fire Like System (Vercel/Render Ready)",
-        "credits": "https://t.me/nopethug"
+        "message": "ROMEL CHEATS",
+        "credits": "romel"
     })
 
 def initialize_routes(app_instance, servers_config, token_cache_instance):
