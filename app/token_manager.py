@@ -10,8 +10,8 @@ from datetime import timedelta, datetime
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# API URL (Token issuing endpoint)
-AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token")
+# ✅ Custom JWT Token API (Update this if needed)
+AUTH_URL = os.getenv("AUTH_URL", "https://bd-apiiii.vercel.app/token")
 
 # Cache settings
 CACHE_DURATION = timedelta(hours=7).seconds
@@ -72,7 +72,7 @@ class TokenCache:
 
     async def _fetch_token(self, session, uid, password, server_key, sem):
         # ✅ Region যুক্ত করে URL তৈরি
-        url = f"{AUTH_URL}?uid={uid}&password={password}"
+        url = f"{AUTH_URL}?uid={uid}&password={password}&region={server_key}"
         try:
             async with sem:
                 async with session.get(url, timeout=6) as response:
@@ -94,7 +94,7 @@ class TokenCache:
     async def _load_credentials(self, server_key: str):
         try:
             # Priority 1: From ENV
-            config_data = os.getenv(f"{server_key}_CONFIG")
+            config_data = os.getenv(f"{server_key.upper()}_CONFIG")
             if config_data:
                 return json.loads(config_data)
 
