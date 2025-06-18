@@ -1,17 +1,18 @@
 # app/__init__.py
 
-from flask import Flask, request
 import os
 import logging
-from datetime import timedelta
+from flask import Flask, request
 
 from .token_manager import TokenCache
-from .like_routes import like_bp, initialize_routes
+from .like_routes import initialize_routes
+
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Flask app init
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Server config
 SERVERS = {
@@ -20,21 +21,16 @@ SERVERS = {
     "BR": os.getenv("BR_SERVER", "https://client.us.freefiremobile.com"),
 }
 
-# Token manager init
+# Token manager init (now fully async-compatible if token_manager is async)
 token_cache = TokenCache(servers_config=SERVERS)
 
-# Optional: handle chunked transfer
+# Optional: handle chunked transfer for some hostings like Vercel
 @app.before_request
 def handle_chunking():
     if "chunked" in request.headers.get("Transfer-Encoding", "").lower():
         request.environ["wsgi.input_terminated"] = True
 
-# ❌ Remove preload_tokens() to avoid timeout on cold start
-# def preload_tokens():
-#     for server in SERVERS:
-#         token_cache.get_tokens(server)
+# ❌ Removed preload_tokens() to avoid cold-start timeout in Render/Vercel
 
-# preload_tokens()  <-- timeout dey
-
-# Initialize routes
+# ✅ Initialize routes
 initialize_routes(app, SERVERS, token_cache)
