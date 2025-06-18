@@ -17,23 +17,24 @@ _token_cache = None
 async def async_post_request(url: str, data: bytes, token: str):
     try:
         headers = get_headers(token)
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, data=data, headers=headers) as resp:
-                return await resp.read() if resp.status == 200 else None
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=data, headers=headers, timeout=10) as resp:
+                if resp.status == 200:
+                    raw = await resp.read()
+                    return raw
     except Exception as e:
         logger.error(f"Async request failed: {str(e)}")
-        return None
+    return None
 
 async def make_request_async(uid_enc: str, url: str, token: str):
     try:
         data = bytes.fromhex(uid_enc)
         headers = get_headers(token)
-        timeout = aiohttp.ClientTimeout(total=5)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, data=data) as resp:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, data=data, timeout=5) as resp:
                 if resp.status == 200:
-                    return decode_info(await resp.read())
+                    raw = await resp.read()
+                    return decode_info(raw)  # ✅ decode_info is assumed to be synchronous
     except Exception as e:
         logger.error(f"Async make_request failed: {str(e)}")
     return None
@@ -44,38 +45,47 @@ async def detect_player_region(uid: str):
         if not tokens:
             continue
         info_url = f"{server_url}/GetPlayerPersonalShow"
-        response = await async_post_request(info_url, bytes.fromhex(encode_uid(uid)), tokens[0])
-        if response:
-            player_info = decode_info(response)
-            if player_info and getattr(player_info.AccountInfo, 'PlayerNickname', None):
-                return region_key, player_info
+        raw_response = await async_post_request(info_url, bytes.fromhex(encode_uid(uid)), tokens[0])
+        if raw_response:
+            try:
+                player_info = decode_info(raw_response)
+                if player_info and player_info.AccountInfo.PlayerNickname:
+                    return region_key, player_info
+            except Exception as e:
+                logger.warning(f"Decoding failed for server {region_key}: {e}")
     return None, None
 
 async def send_likes(uid: str, region: str):
     tokens = _token_cache.get_tokens(region)
     like_url = f"{_SERVERS[region]}/LikeProfile"
     encrypted = encrypt_aes(create_protobuf(uid, region))
-    tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens[:10]]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    data = bytes.fromhex(encrypted)
+
+    tasks = [
+        async_post_request(like_url, data, token)
+        for token in tokens[:10]
+    ]
+
+    results = await asyncio.gather(*tasks)
     return {
         'sent': len(results),
-        'added': sum(1 for r in results if isinstance(r, bytes))
+        'added': sum(1 for r in results if r is not None)
     }
 
 @like_bp.route("/like", methods=["GET"])
 async def like_player():
-    uid = request.args.get("uid")
-    region_param = request.args.get("region")
-
-    if not uid or not uid.isdigit():
-        return jsonify({
-            "error": "Invalid UID",
-            "message": "Valid numeric UID required",
-            "status": 400,
-            "credits": "https://t.me/nopethug"
-        }), 400
-
     try:
+        uid = request.args.get("uid")
+        region_param = request.args.get("region")
+
+        if not uid or not uid.isdigit():
+            return jsonify({
+                "error": "Invalid UID",
+                "message": "Valid numeric UID required",
+                "status": 400,
+                "credits": "https://t.me/nopethug"
+            }), 400
+
         if region_param:
             region = region_param.upper()
             tokens = _token_cache.get_tokens(region)
@@ -100,9 +110,9 @@ async def like_player():
 
         await send_likes(uid, region)
 
-        current_tokens = _token_cache.get_tokens(region)
+        tokens = _token_cache.get_tokens(region)
         info_url = f"{_SERVERS[region]}/GetPlayerPersonalShow"
-        new_info = await make_request_async(encode_uid(uid), info_url, current_tokens[0]) if current_tokens else None
+        new_info = await make_request_async(encode_uid(uid), info_url, tokens[0]) if tokens else None
         after_likes = new_info.AccountInfo.Likes if new_info else before_likes
 
         return jsonify({
