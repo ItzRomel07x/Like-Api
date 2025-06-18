@@ -5,14 +5,12 @@ import os
 import logging
 from datetime import timedelta
 
-
-from .token_manager import TokenCache, get_headers 
-from .like_routes import like_bp, initialize_routes 
+from .token_manager import TokenCache
+from .like_routes import like_bp, initialize_routes
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 SERVERS = {
     "EUROPE": os.getenv("EUROPE_SERVER", "https://clientbp.ggblueshark.com"),
@@ -20,14 +18,17 @@ SERVERS = {
     "BR": os.getenv("BR_SERVER", "https://client.us.freefiremobile.com"),
 }
 
+token_cache = TokenCache(servers_config=SERVERS)
 
-token_cache = TokenCache(servers_config=SERVERS) 
-
-# Middleware pour gérer les requêtes
 @app.before_request
 def handle_chunking():
-    transfer_encoding = request.headers.get("Transfer-Encoding", "")
-    if "chunked" in transfer_encoding.lower():
+    if "chunked" in request.headers.get("Transfer-Encoding", "").lower():
         request.environ["wsgi.input_terminated"] = True
+
+def preload_tokens():
+    for server in SERVERS:
+        token_cache.get_tokens(server)
+
+preload_tokens()
 
 initialize_routes(app, SERVERS, token_cache)
