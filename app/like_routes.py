@@ -1,11 +1,9 @@
-
 from flask import Blueprint, request, jsonify
 import asyncio
 from datetime import datetime, timezone
 import logging
 import aiohttp 
 import requests 
-
 
 from .utils.protobuf_utils import encode_uid, decode_info, create_protobuf 
 from .utils.crypto_utils import encrypt_aes
@@ -14,7 +12,6 @@ from .token_manager import get_headers
 logger = logging.getLogger(__name__)
 
 like_bp = Blueprint('like_bp', __name__)
-
 
 _SERVERS = {}
 _token_cache = None
@@ -44,8 +41,8 @@ def make_request(uid_enc: str, url: str, token: str):
         return None
 
 async def detect_player_region(uid: str):
-    for region_key, server_url in _SERVERS.items(): # Utilisez _SERVERS
-        tokens = _token_cache.get_tokens(region_key) # Utilisez _token_cache
+    for region_key, server_url in _SERVERS.items():
+        tokens = _token_cache.get_tokens(region_key)
         if not tokens:
             continue
 
@@ -58,8 +55,8 @@ async def detect_player_region(uid: str):
     return None, None
 
 async def send_likes(uid: str, region: str):
-    tokens = _token_cache.get_tokens(region) # Utilisez _token_cache
-    like_url = f"{_SERVERS[region]}/LikeProfile" # Utilisez _SERVERS
+    tokens = _token_cache.get_tokens(region)
+    like_url = f"{_SERVERS[region]}/LikeProfile"
     encrypted = encrypt_aes(create_protobuf(uid, region))
 
     tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens]
@@ -147,11 +144,8 @@ def health_check():
             "credits": "https://t.me/nopethug"
         }), 500
 
-@like_bp.route("/", methods=["GET"]) 
+@like_bp.route("/", methods=["GET"])
 async def root_home():
-    """
-    Route pour la page d'accueil principale de l'API (accessible via '/').
-    """
     return jsonify({
         "message": "Api free fire like ",
         "credits": "https://t.me/nopethug",
