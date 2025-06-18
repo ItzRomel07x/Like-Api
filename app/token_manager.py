@@ -72,7 +72,7 @@ class TokenCache:
 
     async def _fetch_token(self, session, uid, password, server_key, sem):
         # ✅ Region যুক্ত করে URL তৈরি
-        url = f"{AUTH_URL}?uid={uid}&password={password}&region={server_key}"
+        url = f"{AUTH_URL}?uid={uid}&password={password}"
         try:
             async with sem:
                 async with session.get(url, timeout=6) as response:
