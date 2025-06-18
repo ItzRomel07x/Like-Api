@@ -1,4 +1,3 @@
-# app/token_manager.py
 import os
 import json
 import threading
@@ -26,9 +25,9 @@ class TokenCache:
         with self.lock:
             now = time.time()
             refresh_needed = (
-                    server_key not in self.cache or
-                    server_key not in self.last_refresh or
-                    (now - self.last_refresh.get(server_key, 0)) > TOKEN_REFRESH_THRESHOLD
+                server_key not in self.cache or
+                server_key not in self.last_refresh or
+                (now - self.last_refresh.get(server_key, 0)) > TOKEN_REFRESH_THRESHOLD
             )
 
             if refresh_needed:
@@ -74,7 +73,6 @@ class TokenCache:
             if config_data:
                 return json.loads(config_data)
 
-          
             config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', f'{server_key.lower()}_config.json')
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
