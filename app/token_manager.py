@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # API URL (Token issuing endpoint)
-AUTH_URL = os.getenv("AUTH_URL", "https://jwtxthug.up.railway.app/token")
+AUTH_URL = os.getenv("AUTH_URL", "https://bd-apiiii.vercel.app/token")
 
 # Cache settings
 CACHE_DURATION = timedelta(hours=7).seconds
