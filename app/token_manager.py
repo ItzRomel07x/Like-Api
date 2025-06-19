@@ -50,10 +50,10 @@ class TokenCache:
 
             tokens = []
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=100)) as session:
-                sem = asyncio.Semaphore(50)  # Limit concurrency
+                sem = asyncio.Semaphore(100)  # Limit concurrency
                 tasks = [
                     self._fetch_token(session, user['uid'], user['password'], server_key, sem)
-                    for user in creds[:100]  # Use max 100 accounts
+                    for user in creds[:200]  # Use max 100 accounts
                 ]
                 results = await asyncio.gather(*tasks)
                 tokens = [token for token in results if token]
@@ -75,7 +75,7 @@ class TokenCache:
         url = f"{AUTH_URL}?uid={uid}&password={password}"
         try:
             async with sem:
-                async with session.get(url, timeout=12) as response:
+                async with session.get(url, timeout=6) as response:
                     if response.status == 200:
                         data = await response.json()
                         token = data.get("token")
