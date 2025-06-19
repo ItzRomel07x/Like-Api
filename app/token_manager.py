@@ -75,7 +75,7 @@ class TokenCache:
         url = f"{AUTH_URL}?uid={uid}&password={password}"
         try:
             async with sem:
-                async with session.get(url, timeout=6) as response:
+                async with session.get(url, timeout=15) as response:
                     if response.status == 200:
                         data = await response.json()
                         token = data.get("token")
