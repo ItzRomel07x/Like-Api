@@ -53,7 +53,7 @@ async def send_likes(uid: str, region: str):
     tokens = await _token_cache.get_tokens(region)
     like_url = f"{_SERVERS[region]}/LikeProfile"
     encrypted = encrypt_aes(create_protobuf(uid, region))
-    tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens[:10]]
+    tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens
     results = await asyncio.gather(*tasks)
     return {
         'sent': len(results),
